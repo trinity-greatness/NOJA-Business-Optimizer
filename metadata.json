@@ -1,0 +1,6 @@
+{
+  "name": "Noja Business Optimizer ERP",
+  "description": "An AI-powered Enterprise Resource Planning (ERP) platform with advanced dashboard analytics, AI Assistant, HR, Payroll, Finance, Inventory, Procurement, CRM, Sales, Audit Logs, and multi-company/multi-branch management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
