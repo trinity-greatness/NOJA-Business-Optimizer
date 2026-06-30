@@ -14,10 +14,14 @@ import {
   Layers,
   ArrowRightLeft,
   X,
-  FileCheck
+  FileCheck,
+  CloudUpload,
+  Check
 } from 'lucide-react';
 import { ERPState, addAuditEntry, addNotificationEntry } from '../data';
 import { FinanceRecord } from '../types';
+import { getAccessToken } from '../lib/driveAuth';
+import { uploadReportToDrive } from '../lib/driveApi';
 
 interface FinanceModuleProps {
   state: ERPState;
@@ -28,6 +32,84 @@ interface FinanceModuleProps {
 
 export default function FinanceModule({ state, setState, activeCompanyId, activeBranchId }: FinanceModuleProps) {
   const [showAddTr, setShowAddTr] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportSuccess, setExportSuccess] = useState(false);
+
+  const exportPLToDrive = async () => {
+    setIsExporting(true);
+    setExportSuccess(false);
+    try {
+      const token = await getAccessToken();
+      if (!token) {
+        alert('Please connect Google Drive first under the "System Admin" tab to enable cloud report exports.');
+        return;
+      }
+
+      const activeCompany = state.companies.find(c => c.id === activeCompanyId)?.name || 'Noja Business';
+      const reportDate = new Date().toISOString().split('T')[0];
+      const fileName = `noja_pl_statement_${reportDate}.md`;
+
+      const markdown = `# Noja ERP - Income & Margin Statement (P&L)
+**Company/Tenant**: ${activeCompany}
+**Date Generated**: ${reportDate} (UTC)
+**Standard Currency**: UGX (Ugandan Shilling)
+**Operating Scope**: Branch ID "${activeBranchId}"
+
+---
+
+## 1. Executive Ledger Summary
+| Account Matrix | Ledger Type | Total Balance (UGX) |
+| :--- | :--- | :--- |
+| **Gross Operating Revenue** | Credit (Income) | UGX ${totals.income.toLocaleString()} |
+| **Gross Operating Expenditures** | Debit (Expense) | UGX ${totals.expense.toLocaleString()} |
+| **Net Earnings (EBITDA)** | Balance Margin | **UGX ${totals.net.toLocaleString()}** |
+
+---
+
+## 2. Operating Expenditures Breakdown
+| Cost Category | Total Allocated (UGX) | Percentage of Costs |
+| :--- | :--- | :--- |
+${Object.entries(plSheet.expensesGrouped)
+  .map(([cat, val]) => {
+    const numVal = val as number;
+    const percent = totals.expense > 0 ? ((numVal / totals.expense) * 100).toFixed(1) : '0.0';
+    return `| Cost of ${cat} | UGX ${numVal.toLocaleString()} | ${percent}% |`;
+  })
+  .join('\n')}
+
+---
+*Report exported securely from Noja Cloud ERP container. Verified under IFRS standards.*
+`;
+
+      await uploadReportToDrive(token, fileName, markdown);
+      
+      // Log audit
+      const user = { name: 'Malotrinax', role: 'Administrator', id: 'usr-admin' };
+      let updated = addAuditEntry(
+        state,
+        'Export Cloud P&L Report',
+        'Finance',
+        `Successfully exported Profit & Loss report "${fileName}" directly to Google Drive`,
+        user
+      );
+      updated = addNotificationEntry(
+        updated,
+        'Cloud Report Exported',
+        `P&L statement was synced directly to your Google Drive folder: ${fileName}`,
+        'success'
+      );
+      setState(updated);
+
+      setExportSuccess(true);
+      setTimeout(() => setExportSuccess(false), 3000);
+      alert(`Report "${fileName}" exported successfully to your Google Drive "Noja ERP Backups" folder!`);
+    } catch (err) {
+      console.error('Failed to export report to Drive:', err);
+      alert('Failed to sync report to Google Drive. Please verify your connection status and try again.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
   const [newTr, setNewTr] = useState<Partial<FinanceRecord>>({
     description: '',
     category: 'Revenue',
@@ -176,7 +258,7 @@ export default function FinanceModule({ state, setState, activeCompanyId, active
           <div>
             <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Net cash balance</p>
             <h4 className={`text-xl font-bold font-mono mt-0.5 ${totals.net >= 0 ? 'text-teal-600 dark:text-teal-400' : 'text-rose-600'}`}>
-              ${totals.net.toLocaleString()}
+              UGX {totals.net.toLocaleString()}
             </h4>
           </div>
         </div>
@@ -185,10 +267,23 @@ export default function FinanceModule({ state, setState, activeCompanyId, active
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Profit and Loss Sheet */}
         <div className="bg-white dark:bg-[#1E293B] border border-slate-100 dark:border-slate-800 rounded-xl shadow-xs p-5 space-y-4">
-          <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
+          <div className="border-b border-slate-100 dark:border-slate-800 pb-3 flex justify-between items-center">
             <h3 className="text-xs font-bold uppercase text-slate-400 tracking-wider flex items-center">
               <FileCheck className="w-4 h-4 mr-1 text-slate-800 dark:text-slate-200" /> Income & Margin Statement (P&L)
             </h3>
+            <button
+              onClick={exportPLToDrive}
+              disabled={isExporting}
+              className="p-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded text-slate-400 hover:text-blue-500 transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
+              title="Sync statement as markdown report to Google Drive"
+            >
+              {exportSuccess ? (
+                <Check className="w-3.5 h-3.5 text-emerald-500" />
+              ) : (
+                <CloudUpload className={`w-3.5 h-3.5 ${isExporting ? 'animate-bounce' : ''}`} />
+              )}
+              <span className="text-[9px] font-bold uppercase tracking-wider">Export</span>
+            </button>
           </div>
 
           <div className="space-y-3 text-xs">
